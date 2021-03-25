@@ -70,6 +70,7 @@ pub async fn find_graphql_services() -> Result<ServiceRouteTable> {
                         tls,
                         query_path: query_path.map(ToString::to_string),
                         subscribe_path: subscribe_path.map(ToString::to_string),
+                        custom_fetcher: None,
                     },
                 );
             }
