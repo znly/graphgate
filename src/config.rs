@@ -44,6 +44,7 @@ impl Config {
                     tls: service.tls,
                     query_path: service.query_path.clone(),
                     subscribe_path: service.subscribe_path.clone(),
+                    custom_fetcher: None,
                 },
             );
         }

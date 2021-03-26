@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::{collections::HashMap, sync::Arc};
 
 use futures_util::TryFutureExt;
 use graphgate_planner::{Request, Response};
@@ -8,8 +8,19 @@ use once_cell::sync::Lazy;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(Default::default);
 
+#[async_trait::async_trait]
+pub trait ServiceFetcher {
+    /// Call the GraphQL query of the specified service.
+    async fn query(
+        &self,
+        service: &str,
+        request: Request,
+        header_map: Option<&HeaderMap>,
+    ) -> anyhow::Result<Response>;
+}
+
 /// Service routing information.
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone)]
 pub struct ServiceRoute {
     /// Service address
     ///
@@ -24,6 +35,24 @@ pub struct ServiceRoute {
 
     /// GraphQL WebSocket path, default is `/`.
     pub subscribe_path: Option<String>,
+
+    pub custom_fetcher: Option<Arc<dyn ServiceFetcher + Send + Sync>>,
+}
+
+impl PartialEq for ServiceRoute {
+    fn eq(&self, other: &Self) -> bool {
+        self.addr.eq(&other.addr)
+            && self.tls.eq(&other.tls)
+            && self.query_path.eq(&other.query_path)
+            && self.subscribe_path.eq(&other.subscribe_path)
+    }
+}
+impl Eq for ServiceRoute {}
+
+impl std::fmt::Debug for ServiceRoute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceRoute").finish()
+    }
 }
 
 /// Service routing table
@@ -58,6 +87,11 @@ impl ServiceRouteTable {
         let route = self.0.get(service).ok_or_else(|| {
             anyhow::anyhow!("Service '{}' is not defined in the routing table.", service)
         })?;
+
+        if let Some(fetcher) = route.custom_fetcher.clone() {
+            return fetcher.query(service, request, header_map).await;
+        }
+
         let scheme = match route.tls {
             true => "https",
             false => "http",
@@ -75,6 +109,7 @@ impl ServiceRouteTable {
             .and_then(|res| async move { res.error_for_status() })
             .and_then(|res| res.json::<Response>())
             .await?;
+
         Ok(resp)
     }
 }
